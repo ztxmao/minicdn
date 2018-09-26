@@ -11,8 +11,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/codeskyblue/groupcache"
 	"github.com/gorilla/websocket"
+	"github.com/ztxmao/groupcache"
 )
 
 const defaultWSURL = "/_ws/"

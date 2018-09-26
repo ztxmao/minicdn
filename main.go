@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"flag"
 	"fmt"
+	"html"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -14,8 +15,16 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/codeskyblue/groupcache"
+	"github.com/ztxmao/groupcache"
 )
+
+type ctxFlush struct {
+	isFlush bool
+}
+
+func (ctx *ctxFlush) Flush() bool {
+	return ctx.isFlush
+}
 
 var thumbNails = groupcache.NewGroup("thumbnail", 512<<20, groupcache.GetterFunc(
 	func(ctx groupcache.Context, key string, dest groupcache.Sink) error {
@@ -55,8 +64,13 @@ func FileHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	fmt.Println("KEY:", key)
+
+	ctx := &ctxFlush{}
 	var data []byte
-	var ctx groupcache.Context
+	flush := html.EscapeString(r.FormValue("_flush"))
+	if flush == "^_^" {
+		ctx.isFlush = true
+	}
 	err := thumbNails.Get(ctx, key, groupcache.AllocatingByteSliceSink(&data))
 	if err != nil {
 		http.Error(w, err.Error(), 500)
