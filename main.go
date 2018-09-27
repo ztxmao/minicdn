@@ -40,7 +40,14 @@ var thumbNails = groupcache.NewGroup("thumbnail", 512<<20, groupcache.GetterFunc
 func generateThumbnail(key string) ([]byte, error) {
 	u, _ := url.Parse(*mirror)
 	u.Path = key
-	resp, err := http.Get(u.String())
+	req, err := http.NewRequest("GET", u.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+	if *host != "" {
+		req.Host = *host
+	}
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -88,6 +95,7 @@ var (
 	upstream = flag.String("upstream", "", "Server base URL, conflict with -mirror")
 	address  = flag.String("addr", ":5000", "Listen address")
 	token    = flag.String("token", "1234567890ABCDEFG", "slave and master token should be same")
+	host     = flag.String("host", "", "server http host name")
 )
 
 func InitSignal() {
