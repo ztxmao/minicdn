@@ -55,7 +55,7 @@ func generateThumbnail(key string) ([]byte, error) {
 	return ioutil.ReadAll(resp.Body)
 }
 
-func tunnel(r *http.Request) ([]byte, error) {
+func tunnel(r *http.Request) ([]byte, http.Header, error) {
 	u, _ := url.Parse(*mirror)
 	u.Path = r.URL.Path
 	u.RawPath = r.URL.RawPath
@@ -63,7 +63,7 @@ func tunnel(r *http.Request) ([]byte, error) {
 	r.ParseForm()
 	req, err := http.NewRequest(r.Method, u.String(), strings.NewReader(r.Form.Encode()))
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if *host != "" {
 		req.Host = *host
@@ -72,13 +72,14 @@ func tunnel(r *http.Request) ([]byte, error) {
 	req.Header.Set("Connection", "Keep-Alive")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer resp.Body.Close()
-	return ioutil.ReadAll(resp.Body)
+	data, err := ioutil.ReadAll(resp.Body)
+	return data, resp.Header, err
 }
 
-func cacheTunnel(w http.ResponseWriter, r *http.Request) ([]byte, error) {
+func cacheTunnel(w http.ResponseWriter, r *http.Request) ([]byte, http.Header, error) {
 	var key string
 	if *rule == "ignore" {
 		key = r.URL.Path
@@ -95,7 +96,7 @@ func cacheTunnel(w http.ResponseWriter, r *http.Request) ([]byte, error) {
 			u.Path = r.URL.Path
 			u.RawQuery = r.URL.RawQuery
 			http.Redirect(w, r, u.String(), 302)
-			return nil, nil
+			return nil, nil, nil
 		}
 	}
 	fmt.Println("KEY:", key)
@@ -107,18 +108,19 @@ func cacheTunnel(w http.ResponseWriter, r *http.Request) ([]byte, error) {
 		ctx.isFlush = true
 	}
 	err := thumbNails.Get(ctx, key, groupcache.AllocatingByteSliceSink(&data))
-	return data, err
+	return data, nil, err
 }
 func FileHandler(w http.ResponseWriter, r *http.Request) {
 	method := r.Method
 	key := r.URL.Path
 	var data []byte
 	var err error
+	var header http.Header
 	fmt.Println(method, *rule)
 	if method == "GET" && *rule != "proxy" {
-		data, err = cacheTunnel(w, r)
+		data, header, err = cacheTunnel(w, r)
 	} else {
-		data, err = tunnel(r)
+		data, header, err = tunnel(r)
 	}
 	if err != nil {
 		http.Error(w, err.Error(), 500)
@@ -127,11 +129,20 @@ func FileHandler(w http.ResponseWriter, r *http.Request) {
 	var modTime time.Time = time.Now()
 
 	rd := bytes.NewReader(data)
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Headers", "Cookie,Set-Cookie,x-requested-with,content-type")
-	w.Header().Set("Access-Control-Allow-Credentials", "true")
-	w.Header().Set("Access-Control-Allow-Methods", "GET,POST,OPTIONS")
+	if header != nil {
+		for key, val := range header {
+			for _, v := range val {
+				w.Header().Set(key, v)
+			}
+		}
+	} else {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Headers", "Cookie,Set-Cookie,x-requested-with,content-type")
+		w.Header().Set("Access-Control-Allow-Credentials", "true")
+		w.Header().Set("Access-Control-Allow-Methods", "GET,POST,OPTIONS")
+	}
 	w.Header().Set("Via-Server", "goproxy cache")
+
 	http.ServeContent(w, r, filepath.Base(key), modTime, rd)
 }
 
