@@ -27,6 +27,10 @@ func (ctx *ctxFlush) Flush() bool {
 	return ctx.isFlush
 }
 
+func redirectPolicyFunc(req *http.Request, via []*http.Request) error {
+	return http.ErrUseLastResponse
+}
+
 var thumbNails = groupcache.NewGroup("thumbnail", 512<<20, groupcache.GetterFunc(
 	func(ctx groupcache.Context, key string, dest groupcache.Sink) error {
 		fileName := key
@@ -61,6 +65,9 @@ func tunnel(r *http.Request) ([]byte, http.Header, error) {
 	u.RawPath = r.URL.RawPath
 	u.RawQuery = r.URL.RawQuery
 	r.ParseForm()
+	client := &http.Client{
+		CheckRedirect: redirectPolicyFunc,
+	}
 	req, err := http.NewRequest(r.Method, u.String(), strings.NewReader(r.Form.Encode()))
 	if err != nil {
 		return nil, nil, err
@@ -70,7 +77,8 @@ func tunnel(r *http.Request) ([]byte, http.Header, error) {
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Connection", "Keep-Alive")
-	resp, err := http.DefaultClient.Do(req)
+	//resp, err := http.DefaultClient.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -142,8 +150,11 @@ func FileHandler(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Methods", "GET,POST,OPTIONS")
 	}
 	w.Header().Set("Via-Server", "goproxy cache")
-
-	http.ServeContent(w, r, filepath.Base(key), modTime, rd)
+	if url := w.Header().Get("Location"); url != "" {
+		http.Redirect(w, r, url, 302)
+	} else {
+		http.ServeContent(w, r, filepath.Base(key), modTime, rd)
+	}
 }
 
 var (
